@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat App Test Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #007bff;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .messages {
+            height: 400px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 20px;
+            overflow-y: auto;
+            background-color: #fafafa;
+            border-radius: 5px;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 5px;
+        }
+        .user-message { background-color: #e3f2fd; }
+        .ai-message { background-color: #f3e5f5; }
+        .system-message { background-color: #fff3cd; font-style: italic; }
+        .error-message { background-color: #f8d7da; color: #721c24; }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        .user-info {
+            background-color: #e9ecef;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .typing-indicator {
+            font-style: italic;
+            color: #6c757d;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Chat App Test Client</h1>
+            <p>Test your Socket.io backend with real-time messaging</p>
+        </div>
+
+        <div id="status" class="status disconnected">
+            Disconnected
+        </div>
+
+        <div class="user-info">
+            <div>
+                <strong>Server:</strong> <span id="serverUrl">http://localhost:3000</span>
+            </div>
+            <div>
+                <strong>Username:</strong> <span id="currentUsername">Not set</span>
+            </div>
+            <div>
+                <strong>Connected Users:</strong> <span id="userCount">0</span>
+            </div>
+        </div>
+
+        <div class="input-group">
+            <input type="text" id="usernameInput" placeholder="Enter your username" value="TestUser">
+            <button onclick="joinChat()" id="joinBtn">Join Chat</button>
+        </div>
+
+        <div id="messages" class="messages">
+            <div class="system-message">Welcome! Enter your username and click "Join Chat" to start testing.</div>
+        </div>
+
+        <div class="input-group">
+            <input type="text" id="messageInput" placeholder="Type your message here..." disabled>
+            <button onclick="sendMessage()" id="sendBtn" disabled>Send Message</button>
+        </div>
+
+        <div id="typingIndicator" class="typing-indicator" style="display: none;"></div>
+
+        <div style="margin-top: 20px; text-align: center;">
+            <button onclick="clearMessages()" style="background-color: #6c757d;">Clear Messages</button>
+            <button onclick="testTyping()" style="background-color: #28a745;">Test Typing</button>
+            <button onclick="disconnect()" style="background-color: #dc3545;">Disconnect</button>
+        </div>
+    </div>
+
+    <!-- Socket.io Client Library -->
+    <script src="/socket.io/socket.io.js"></script>
+    
+    <script>
+        let socket = null;
+        let username = null;
+        let isConnected = false;
+
+        // Initialize connection
+        function initSocket() {
+            const serverUrl = document.getElementById('serverUrl').textContent;
+            socket = io(serverUrl);
+
+            // Connection events
+            socket.on('connect', () => {
+                console.log('✅ Connected to server');
+                updateStatus('Connected', 'connected');
+                isConnected = true;
+                addSystemMessage('Connected to server successfully!');
+            });
+
+            socket.on('disconnect', () => {
+                console.log('❌ Disconnected from server');
+                updateStatus('Disconnected', 'disconnected');
+                isConnected = false;
+                addSystemMessage('Disconnected from server');
+                disableChat();
+            });
+
+            // Chat events
+            socket.on('user_joined', (data) => {
+                console.log('👤 User joined:', data);
+                addSystemMessage(`${data.username} joined the chat`);
+            });
+
+            socket.on('user_message', (data) => {
+                console.log('💬 User message:', data);
+                addMessage(data.username, data.message, 'user-message');
+            });
+
+            socket.on('ai_message', (data) => {
+                console.log('🤖 AI message:', data);
+                addMessage(data.username, data.message, 'ai-message');
+            });
+
+            socket.on('user_left', (data) => {
+                console.log('👋 User left:', data);
+                addSystemMessage(`${data.username} left the chat`);
+            });
+
+            socket.on('user_count', (data) => {
+                console.log('👥 User count:', data);
+                document.getElementById('userCount').textContent = data.count;
+            });
+
+            socket.on('user_typing', (data) => {
+                console.log('⌨️ User typing:', data);
+                showTypingIndicator(data.username, data.isTyping);
+            });
+
+            socket.on('error', (data) => {
+                console.error('❌ Error:', data);
+                addMessage('Error', data.message, 'error-message');
+            });
+        }
+
+        // Join chat
+        function joinChat() {
+            const usernameInput = document.getElementById('usernameInput');
+            username = usernameInput.value.trim();
+            
+            if (!username) {
+                alert('Please enter a username');
+                return;
+            }
+
+            if (!socket) {
+                initSocket();
+            }
+
+            socket.emit('user_join', { username });
+            document.getElementById('currentUsername').textContent = username;
+            usernameInput.disabled = true;
+            document.getElementById('joinBtn').disabled = true;
+            enableChat();
+            addSystemMessage(`Joining as ${username}...`);
+        }
+
+        // Send message
+        function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value.trim();
+            
+            if (!message || !isConnected) return;
+
+            socket.emit('message', { message, username });
+            messageInput.value = '';
+            hideTypingIndicator();
+        }
+
+        // Test typing indicator
+        function testTyping() {
+            if (!isConnected) return;
+            
+            socket.emit('typing', { isTyping: true });
+            setTimeout(() => {
+                socket.emit('typing', { isTyping: false });
+            }, 2000);
+        }
+
+        // Disconnect
+        function disconnect() {
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+            }
+            isConnected = false;
+            disableChat();
+            document.getElementById('usernameInput').disabled = false;
+            document.getElementById('joinBtn').disabled = false;
+            document.getElementById('currentUsername').textContent = 'Not set';
+        }
+
+        // UI Helper functions
+        function updateStatus(text, className) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = text;
+            statusEl.className = `status ${className}`;
+        }
+
+        function addMessage(username, message, type) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.innerHTML = `<strong>${username}:</strong> ${message}`;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function addSystemMessage(message) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message system-message';
+            messageDiv.textContent = message;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function showTypingIndicator(username, isTyping) {
+            const indicator = document.getElementById('typingIndicator');
+            if (isTyping) {
+                indicator.textContent = `${username} is typing...`;
+                indicator.style.display = 'block';
+            } else {
+                indicator.style.display = 'none';
+            }
+        }
+
+        function hideTypingIndicator() {
+            document.getElementById('typingIndicator').style.display = 'none';
+        }
+
+        function enableChat() {
+            document.getElementById('messageInput').disabled = false;
+            document.getElementById('sendBtn').disabled = false;
+        }
+
+        function disableChat() {
+            document.getElementById('messageInput').disabled = true;
+            document.getElementById('sendBtn').disabled = true;
+        }
+
+        function clearMessages() {
+            document.getElementById('messages').innerHTML = '';
+        }
+
+        // Enter key to send message
+        document.getElementById('messageInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Auto-connect on page load (optional)
+        // initSocket();
+    </script>
+</body>
+</html>
